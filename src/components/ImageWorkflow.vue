@@ -17,7 +17,8 @@
           :scale="scale"
           :selectedNodes="selectedNodes"
           @node-dropped="handleNodeDrop"
-          @update-node="updateNode"
+          @update-node="handleNodeUpdate"
+          @update-links="handleLinksUpdate"
           @start-link-drag="startLinkDrag"
           @complete-link-drag="completeLinkDrag"
           @delete-link="deleteLink"
@@ -54,7 +55,7 @@
   import ImageCanvas from "./ImageCanvas.vue";
   import MiniMap from "./MiniMap.vue";
   import NodeSettings from "./NodeSettings.vue";
-  import { processImage } from "../services/imageProcessingService.js";
+  import { processImage } from "@/services/ImageProcessingService";
   
   export default {
     name: "ImageWorkflow",
@@ -68,19 +69,96 @@
             id: "start",
             label: "START",
             type: "start",
-            x: 100,
-            y: 250,
-            image: null, // 업로드 이미지
-            ports: [{ id: "p1", x: 130, y: 250 }],
+            x: 150,        // 왼쪽 위 위치
+            y: 100,
+            image: null,
+            ports: [
+              { 
+                id: "start-port-out", 
+                x: 180,     // start 노드의 x + 30
+                y: 100,
+                type: 'output'
+              }
+            ],
           },
           {
-            id: "end",
-            label: "END",
-            type: "end",
-            x: 500,
-            y: 250,
-            ports: [{ id: "p2", x: 470, y: 250 }],
+            id: "end_back",
+            label: "END_BACK",
+            type: "process",
+            x: 600,
+            y: 200,
+            ports: [
+              { 
+                id: "end-back-port-in", 
+                x: 570,
+                y: 200,
+                type: 'input'
+              },
+              { 
+                id: "end-back-port-out", 
+                x: 630,
+                y: 200,
+                type: 'output'
+              }
+            ],
           },
+          {
+            id: "end_draw",
+            label: "END_DRAW",
+            type: "process",
+            x: 600,
+            y: 300,
+            ports: [
+              { 
+                id: "end-draw-port-in", 
+                x: 570,
+                y: 300,
+                type: 'input'
+              },
+              { 
+                id: "end-draw-port-out", 
+                x: 630,
+                y: 300,
+                type: 'output'
+              }
+            ],
+          },
+          {
+            id: "end_image",
+            label: "END_IMAGE",
+            type: "process",
+            x: 600,
+            y: 400,
+            ports: [
+              { 
+                id: "end-image-port-in", 
+                x: 570,
+                y: 400,
+                type: 'input'
+              },
+              { 
+                id: "end-image-port-out", 
+                x: 630,
+                y: 400,
+                type: 'output'
+              }
+            ],
+          },
+          {
+            id: "end_data",
+            label: "END_DATA",
+            type: "end",
+            x: 600,
+            y: 500,
+            ports: [
+              { 
+                id: "end-data-port-in", 
+                x: 570,
+                y: 500,
+                type: 'input'
+              }
+            ],
+          }
         ],
         links: [],
         tempLink: null,
@@ -220,7 +298,7 @@
         this.panOffset = offset;
       },
       handleNodeDrop({ nodeData, offsetX, offsetY }) {
-        // 노드 생성 시 정확한 위치에 생성 (스케일 및 패닝 고려)
+        // 일반 노드 생성 시 정확한 위치에 생성 (스케일 및 패닝 고려)
         const newNode = {
           ...nodeData,
           id: `node-${Date.now()}`,
@@ -228,8 +306,18 @@
           y: offsetY,
           type: "normal",
           ports: [
-            { id: `p1-${Date.now()}`, x: offsetX - 20, y: offsetY },
-            { id: `p2-${Date.now()}`, x: offsetX + 20, y: offsetY },
+            { 
+              id: `port-in-${Date.now()}`, 
+              x: offsetX - 20, 
+              y: offsetY,
+              type: 'input'
+            },
+            { 
+              id: `port-out-${Date.now()}`, 
+              x: offsetX + 20, 
+              y: offsetY,
+              type: 'output'
+            }
           ],
           image: null
         };
@@ -239,31 +327,51 @@
         this.selectedNode = newNode;
         this.selectedNodes = [newNode];
       },
-      updateNode(updatedNode) {
-        const idx = this.nodes.findIndex(n => n.id === updatedNode.id);
-        if (idx !== -1) {
-          this.nodes[idx] = updatedNode;
-          
-          // 선택된 노드도 업데이트
-          if (this.selectedNode && this.selectedNode.id === updatedNode.id) {
-            this.selectedNode = updatedNode;
-          }
-        }
-        
-        // 연결선 좌표 업데이트
-        this.links.forEach(link => {
-          updatedNode.ports.forEach(port => {
-            if (link.source.id === port.id) {
-              link.source = { ...port };
-            }
-            if (link.target.id === port.id) {
-              link.target = { ...port };
-            }
+      handleNodeUpdate(updatedNode) {
+        const index = this.nodes.findIndex(n => n.id === updatedNode.id);
+        if (index !== -1) {
+          // 노드 업데이트 시 포트 정보도 완전히 복사
+          const newNode = {
+            ...updatedNode,
+            ports: updatedNode.ports.map(port => ({
+              id: port.id,
+              x: port.x,
+              y: port.y,
+              type: port.type
+            }))
+          };
+          this.nodes.splice(index, 1, newNode);
+
+          // 관련된 연결들의 포트 정보도 업데이트
+          this.links = this.links.map(link => {
+            const newLink = { ...link };
+            updatedNode.ports.forEach(port => {
+              if (link.source.id === port.id) {
+                newLink.source = {
+                  id: port.id,
+                  x: port.x,
+                  y: port.y,
+                  type: port.type
+                };
+              }
+              if (link.target.id === port.id) {
+                newLink.target = {
+                  id: port.id,
+                  x: port.x,
+                  y: port.y,
+                  type: port.type
+                };
+              }
+            });
+            return newLink;
           });
-        });
+        }
       },
-      updateTempLink(updatedTempLink) {
-        this.tempLink = updatedTempLink;
+      handleLinksUpdate(updatedLinks) {
+        this.links = [...updatedLinks];
+      },
+      updateTempLink(newTempLink) {
+        this.tempLink = newTempLink;
       },
       startLinkDrag({ port, startX, startY }) {
         this.tempLink = {
@@ -274,24 +382,24 @@
           sourcePort: port
         };
       },
-      completeLinkDrag({ dropX, dropY }) {
-        let targetPort = null;
-        const threshold = 15 / this.scale; // 스케일 고려하여 인식 범위 조정
-        
-        this.nodes.forEach(n => {
-          n.ports.forEach(p => {
-            const dx = p.x - dropX;
-            const dy = p.y - dropY;
-            if (Math.sqrt(dx * dx + dy * dy) < threshold) {
-              targetPort = p;
-            }
-          });
-        });
-        
-        if (targetPort && targetPort.id !== this.tempLink.sourcePort.id) {
-          this.links.push({ source: this.tempLink.sourcePort, target: targetPort });
-        }
-        this.tempLink = null;
+      completeLinkDrag({ source, target }) {
+        // 깊은 복사로 연결 정보 저장
+        const newLink = {
+          source: { 
+            id: source.id,
+            x: source.x,
+            y: source.y,
+            type: source.type
+          },
+          target: { 
+            id: target.id,
+            x: target.x,
+            y: target.y,
+            type: target.type
+          }
+        };
+        console.log('연결 추가:', newLink);
+        this.links.push(newLink);
       },
       deleteLink(index) {
         this.links.splice(index, 1);
@@ -301,7 +409,7 @@
         const startNode = this.nodes.find(n => n.type === "start");
         if (startNode) {
           startNode.image = URL.createObjectURL(file);
-          this.updateNode(startNode);
+          this.handleNodeUpdate(startNode);
         }
       },
       onNodeSelect(node) {
@@ -341,34 +449,107 @@
         });
         this.selectedNode = null;
       },
-      // Start Processing
-      startProcessing() {
-        const startNode = this.nodes.find(n => n.type === "start");
-        if (!startNode || !startNode.image) {
-          alert("먼저 START 노드에서 이미지를 업로드하세요.");
+      async startProcessing() {
+        console.log('처리 시작');
+        const startNode = this.nodes.find(n => n.type === 'start');
+        
+        if (!startNode) {
+          alert('시작 노드가 없습니다.');
           return;
         }
-        
-        // 처리 가능한 연결 경로 탐색 및 실행
-        this.nodes.forEach(node => {
-          if (node.type !== "start" && node.type !== "end" && node.options) {
-            // 이 노드로 들어오는 연결 확인
-            const hasInput = this.links.some(link => 
-              node.ports.some(port => port.id === link.target.id)
-            );
-            
-            if (hasInput) {
-              processImage(startNode.image, node.options.type, node.options)
-                .then(result => {
-                  const updatedNode = { ...node, image: result };
-                  this.updateNode(updatedNode);
-                })
-                .catch(error => {
-                  console.error(`노드 ${node.id} 처리 중 오류:`, error);
-                });
+
+        console.log('시작 노드 상태:', startNode);
+        if (!startNode.image) {
+          alert('시작 노드에 이미지를 먼저 업로드하세요.');
+          return;
+        }
+
+        try {
+          // 모든 노드의 processedImage 초기화
+          this.nodes.forEach(node => {
+            if (node.type !== 'start') {
+              this.handleNodeUpdate({
+                ...node,
+                processedImage: null
+              });
             }
+          });
+
+          // 시작 노드의 다음 노드들부터 처리 시작
+          const nextNodes = this.getNextNodes(startNode);
+          console.log('처리할 다음 노드들:', nextNodes);
+          
+          for (const nextNode of nextNodes) {
+            await this.processNode(nextNode, startNode.image);
           }
-        });
+          
+          console.log('처리 완료');
+        } catch (error) {
+          console.error('처리 중 오류:', error);
+          alert('이미지 처리 중 오류가 발생했습니다.');
+        }
+      },
+      async processNode(node, inputImage) {
+        console.log('노드 처리 시작:', node.id, node.type, '입력 이미지:', inputImage ? '있음' : '없음');
+
+        if (node.type === 'end') {
+          console.log('종료 노드 도달');
+          return;
+        }
+
+        try {
+          // 이미지 처리
+          console.log('이미지 처리 중:', node.label);
+          const result = await processImage(inputImage, node.options.type, node.options);
+          
+          // 결과 저장
+          this.handleNodeUpdate({
+            ...node,
+            processedImage: result
+          });
+
+          // 다음 노드들 처리
+          const nextNodes = this.getNextNodes(node);
+          console.log('다음 노드들:', nextNodes);
+          
+          for (const nextNode of nextNodes) {
+            await this.processNode(nextNode, result);
+          }
+        } catch (error) {
+          console.error(`노드 처리 중 오류 (${node.label}):`, error);
+          throw error;
+        }
+      },
+      getNextNodes(node) {
+        const outgoingLinks = this.links.filter(link => 
+          node.ports.some(p => p.id === link.source.id)
+        );
+        console.log('발견된 연결:', outgoingLinks);
+        
+        return outgoingLinks.map(link => 
+          this.nodes.find(n => 
+            n.ports.some(p => p.id === link.target.id)
+          )
+        ).filter(Boolean); // null/undefined 제거
+      },
+      validateFlow() {
+        // 시작 노드가 있는지 확인
+        const startNode = this.nodes.find(n => n.type === 'start');
+        if (!startNode) return false;
+
+        // 모든 노드가 연결되어 있는지 확인
+        const visited = new Set();
+        const traverse = (node) => {
+          if (visited.has(node.id)) return true;
+          visited.add(node.id);
+          
+          const nextNodes = this.getNextNodes(node);
+          if (nextNodes.length === 0 && node.type !== 'end') return false;
+          
+          return nextNodes.every(traverse);
+        };
+        
+        return traverse(startNode);
       },
       groupSelectedNodes() {
         if (this.selectedNodes.length < 2) {
@@ -378,7 +559,7 @@
         const groupId = `group-${Date.now()}`;
         this.selectedNodes.forEach(n => {
           n.groupId = groupId;
-          this.updateNode(n);
+          this.handleNodeUpdate(n);
         });
         alert("노드 그룹화 완료 (Group ID: " + groupId + ")");
       },
